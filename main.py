@@ -58,9 +58,9 @@ def test_database():
 # ---------------- Portfolio Endpoints ----------------
 
 class PortfolioQuery(BaseModel):
-  	category: Optional[str] = None
-  	page: int = 1
-  	limit: int = 18
+    category: Optional[str] = None
+    page: int = 1
+    limit: int = 18
 
 @app.get("/api/portfolio")
 def list_portfolio(category: Optional[str] = None, page: int = 1, limit: int = 18):
@@ -108,6 +108,43 @@ def add_portfolio_bulk(items: List[PortfolioItem]):
         ids.append(create_document("portfolioitem", it))
     return {"inserted": len(ids), "ids": ids}
 
+# Optional: seed initial data on first run if enabled
+@app.on_event("startup")
+def auto_seed_portfolio():
+    try:
+        if db is None:
+            return
+        if os.getenv("AUTO_SEED", "true").lower() not in ("1", "true", "yes"):  # default on
+            return
+        coll = db["portfolioitem"]
+        if coll.count_documents({}) > 0:
+            return
+        seed_items = [
+          {"title": "Penthouse Living Room – Sliema", "category": "Interiors", "src": "https://example.com/portfolio/interiors/penthouse-living-01.jpg", "caption": "Open-plan penthouse living area with soft natural light and sea views."},
+          {"title": "Minimal Kitchen – Valletta", "category": "Interiors", "src": "https://example.com/portfolio/interiors/kitchen-01.jpg", "caption": "Clean, modern kitchen with balanced highlights and true-to-life colours."},
+          {"title": "Seafront Villa Exterior", "category": "Exteriors", "src": "https://example.com/portfolio/exteriors/villa-01.jpg", "caption": "Twilight exterior with warm interior glow and clear architectural lines."},
+          {"title": "Townhouse Courtyard", "category": "Exteriors", "src": "https://example.com/portfolio/exteriors/courtyard-01.jpg", "caption": "Restored stone courtyard with evening ambience and textured details."},
+          {"title": "Coastal Apartment Block – Drone", "category": "Drone / Aerial", "src": "https://example.com/portfolio/drone/coastal-block-01.jpg", "caption": "Aerial view showcasing building massing and relationship to the coastline."},
+          {"title": "Roof Terrace Perspective", "category": "Drone / Aerial", "src": "https://example.com/portfolio/drone/roof-terrace-01.jpg", "caption": "High-angle shot highlighting outdoor living and surrounding context."},
+          {"title": "Staircase + Light Detail", "category": "Architectural Details", "src": "https://example.com/portfolio/details/staircase-01.jpg", "caption": "Focus on joinery, materials, and light transitions on a feature staircase."},
+          {"title": "Lobby Materials & Reflections", "category": "Architectural Details", "src": "https://example.com/portfolio/details/lobby-01.jpg", "caption": "Polished stone, glass, and reflections in a boutique lobby space."},
+          {"title": "Office Reception – Commercial", "category": "Commercial Spaces", "src": "https://example.com/portfolio/commercial/reception-01.jpg", "caption": "Corporate reception that balances brand presence with spatial clarity."},
+          {"title": "Open Workspace – Commercial", "category": "Commercial Spaces", "src": "https://example.com/portfolio/commercial/workspace-01.jpg", "caption": "Daylit open-plan office with emphasis on depth and legibility."},
+          {"title": "Short-Let Studio Apartment", "category": "Short-Let & Airbnb", "src": "https://example.com/portfolio/airbnb/studio-01.jpg", "caption": "Compact studio styled for listings, showing layout clearly in one frame."},
+          {"title": "Airbnb Seafront Balcony", "category": "Short-Let & Airbnb", "src": "https://example.com/portfolio/airbnb/balcony-01.jpg", "caption": "Lifestyle shot focusing on view, outdoor seating, and light quality."}
+        ]
+        ids = []
+        for raw in seed_items:
+            try:
+                item = PortfolioItem(**raw)
+                ids.append(create_document("portfolioitem", item))
+            except Exception:
+                continue
+        if ids:
+            print(f"Seeded {len(ids)} portfolio items")
+    except Exception as e:
+        print(f"Seeding error: {e}")
+
 # ---------------- Contact Endpoint ----------------
 
 def send_email_via_smtp(subject: str, body: str, from_email: str):
@@ -120,8 +157,10 @@ def send_email_via_smtp(subject: str, body: str, from_email: str):
         return False, "SMTP not configured"
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = from_email
+    msg["From"] = from_email or (user or "no-reply@localhost")
     msg["To"] = to_email
+    if from_email:
+        msg["Reply-To"] = from_email
     msg.set_content(body)
     try:
         with smtplib.SMTP(host, port, timeout=15) as server:
@@ -141,11 +180,13 @@ def submit_contact(payload: ContactMessage):
     except Exception:
         saved_id = None
 
-    subject = "New portfolio inquiry"
+    site_name = os.getenv("SITE_NAME", "Bianco Property Photography")
+    subject = f"New enquiry from {site_name}"
     body = (
         f"Name: {payload.name}\n"
         f"Email: {payload.email}\n"
-        f"Phone: {payload.phone or '-'}\n\n"
+        f"Phone: {payload.phone or '-'}\n"
+        f"Type of property: {payload.property_type or '-'}\n\n"
         f"Message:\n{payload.message}\n"
     )
     ok, info = send_email_via_smtp(subject, body, str(payload.email))

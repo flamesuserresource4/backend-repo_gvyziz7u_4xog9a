@@ -29,6 +29,7 @@ class ContactMessage(BaseModel):
     name: str = Field(..., min_length=2, max_length=120)
     email: EmailStr
     phone: Optional[str] = Field(None, max_length=50)
+    property_type: Optional[str] = Field(None, max_length=120, description="Type of property or shoot")
     message: str = Field(..., min_length=5, max_length=5000)
 
 # Example leftover schemas can remain if needed by admin tools
